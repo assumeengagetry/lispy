@@ -102,7 +102,7 @@ lval* lval_read(mpc_ast_t* t){
   if(strstr(t->tag, "symbol")) return lval_sym(t->contents);
   lval* x = NULL;
   if(strcmp(t->tag, ">") == 0) x= lval_sexpr();
-  if(strcmp(t->tag, "sexpr")) x = lval_sexpr();
+  if(strcmp(t->tag, "sexpr") == 0) x = lval_sexpr();
   for(int i = 0; i < t->children_num; i++){
     if(strcmp(t->children[i]->contents, "(") == 0) continue;
     if(strcmp(t->children[i]->contents, ")") == 0) continue;
@@ -139,44 +139,120 @@ void lval_print(lval* v) {
 void lval_println(lval* v) { lval_print(v); putchar('\n'); }
 
 
+lval* lval_eval(lval* v);
 
-lval eval_op(lval x, char *op, lval y) {
-  if (x.type == LVAL_ERR)
-    return x;
-  if (y.type == LVAL_ERR)
-    return y;
+lval* lval_pop(lval* v, int i) {
+  /* Find the item at "i" */
+  lval* x = v->cell[i];
 
-  if (strcmp(op, "+") == 0) {
-    return lval_num(x.num + y.num);
-  }
-  if (strcmp(op, "-") == 0) {
-    return lval_num(x.num - y.num);
-  }
-  if (strcmp(op, "*") == 0) {
-    return lval_num(x.num * y.num);
-  }
-  if (strcmp(op, "/") == 0) {
+  /* Shift memory after the item at "i" over the top */
+  memmove(&v->cell[i], &v->cell[i+1],
+    sizeof(lval*) * (v->count-i-1));
 
-    return y.num == 0 ? lval_err(LERR_DIV_ZERO) : lval_num(x.num / y.num);
-  }
-  return lval_err(LERR_BAD_OP);
-}
+  /* Decrease the count of items in the list */
+  v->count--;
 
-lval eval(mpc_ast_t *t) {
-  if (strstr(t->tag, "number")) {
-    errno = 0;
-    long x = strtol(t->contents, NULL, 10);
-    return errno != ERANGE ? lval_num(x) : lval_err(LERR_BAD_NUM);
-  }
-  char *op = t->children[1]->contents;
-  lval x = eval(t->children[2]);
-  int i = 3;
-  while (strstr(t->children[i]->tag, "expr")) {
-    x = eval_op(x, op, eval(t->children[i]));
-    i++;
-  }
+  /* Reallocate the memory used */
+  v->cell = realloc(v->cell, sizeof(lval*) * v->count);
   return x;
 }
+
+lval* lval_take(lval* v, int i){
+  lval* x = lval_pop(v, i);
+  lval_del(v);
+  return x;
+}
+
+lval* builtin_op(lval* a, char* op){
+for(int i = 0; i < a->count; i++){
+  if(a->cell[i] -> type != LVAL_NUM){
+    lval_del(a);
+    return lval_err("fuck you man  you cannot operate on non-number");
+  }
+}
+lval* x = lval_pop(a, 0);
+if((strcmp(op,"-") == 0) && a->count == 0) x->num = -x ->num;
+while(a->count > 0){
+  lval* y = lval_pop(a, 0);
+
+    if (strcmp(op, "+") == 0) { x->num += y->num; }
+    if (strcmp(op, "-") == 0) { x->num -= y->num; }
+    if (strcmp(op, "*") == 0) { x->num *= y->num; }
+    if (strcmp(op, "/") == 0) {
+      if (y->num == 0) {
+        lval_del(x); lval_del(y);
+        x = lval_err("Division By Zero!"); break;
+      }
+      x->num /= y->num;
+    }
+    lval_del(y);
+}
+lval_del(a); return x;
+}
+
+
+
+
+lval* lval_eval_sexpr(lval* v){
+  for(int i = 0; i < v->count; i++){
+    v->cell[i] = lval_eval(v->cell[i]);
+  }
+  for(int i = 0; i< v-> count; i++){
+    if(v->cell[i]->type == LVAL_ERR) return lval_take(v,i);
+  }
+  if(v->count == 0) return v;
+  if(v->count == 1) return lval_take(v, 0);
+  lval* f = lval_pop(v, 0);
+  if(f-> type != LVAL_SYM){
+    lval_del(f);lval_del(v);
+    return lval_err("S-expr Dose Not start with symbol son of bitch!!!!");
+  }
+  lval* result = builtin_op(v, f->sym);
+  lval_del(f);
+  return result;
+}
+
+lval* lval_eval(lval* v){
+  if(v->type == LVAL_SEXPR) return lval_eval_sexpr(v);
+  return v;
+};
+// lval eval_op(lval x, char *op, lval y) {
+//   if (x.type == LVAL_ERR)
+//     return x;
+//   if (y.type == LVAL_ERR)
+//     return y;
+
+//   if (strcmp(op, "+") == 0) {
+//     return lval_num(x.num + y.num);
+//   }
+//   if (strcmp(op, "-") == 0) {
+//     return lval_num(x.num - y.num);
+//   }
+//   if (strcmp(op, "*") == 0) {
+//     return lval_num(x.num * y.num);
+//   }
+//   if (strcmp(op, "/") == 0) {
+
+//     return y.num == 0 ? lval_err(LERR_DIV_ZERO) : lval_num(x.num / y.num);
+//   }
+//   return lval_err(LERR_BAD_OP);
+// }
+
+// lval eval(mpc_ast_t *t) {
+//   if (strstr(t->tag, "number")) {
+//     errno = 0;
+//     long x = strtol(t->contents, NULL, 10);
+//     return errno != ERANGE ? lval_num(x) : lval_err(LERR_BAD_NUM);
+//   }
+//   char *op = t->children[1]->contents;
+//   lval x = eval(t->children[2]);
+//   int i = 3;
+//   while (strstr(t->children[i]->tag, "expr")) {
+//     x = eval_op(x, op, eval(t->children[i]));
+//     i++;
+//   }
+//   return x;
+// }
 
 int main(int argc, char **argv) {
 
@@ -190,7 +266,7 @@ int main(int argc, char **argv) {
   mpca_lang(MPCA_LANG_DEFAULT,
             "                                                     \
       number   : /-?[0-9]+/ ;                             \
-      symbal : '+' | '-' | '*' | '/' ;                  \
+      symbol : '+' | '-' | '*' | '/' ;                  \
       expr     : <number> | '(' <operator> <expr>+ ')' ;  \
       lispy    : /^/ <operator> <expr>+ /$/ ;             \
     ",
@@ -204,24 +280,26 @@ int main(int argc, char **argv) {
     char *input = readline("lispy> ");
     add_history(input);
 
-    /* Attempt to parse the user input */
-    mpc_result_t r;
-    if (mpc_parse("<stdin>", input, Lispy, &r)) {
-      /* On success print and delete the AST */
-      lval result = eval(r.output);
-      lval_print(result);
-      mpc_ast_delete(r.output);
-    } else {
-      /* Otherwise print and delete the Error */
-      mpc_err_print(r.error);
-      mpc_err_delete(r.error);
-    }
+  //   /* Attempt to parse the user input */
+     mpc_result_t r;
 
-    free(input);
-  }
+if(mpc_parse("", input, Lispy, &r))
+{
+    lval* x = lval_read(r.output);
 
-  /* Undefine and delete our parsers */
-  mpc_cleanup(4, Number, Operator, Expr, Lispy);
+    lval_println(x);
 
+    lval_del(x);
+
+    mpc_ast_delete(r.output);
+}
+else
+{
+    mpc_err_print(r.error);
+    mpc_err_delete(r.error);
+}
+
+free(input);
+}
   return 0;
 }
